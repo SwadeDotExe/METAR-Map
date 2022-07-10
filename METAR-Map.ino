@@ -30,19 +30,19 @@ int brightness = 128;
 // List of Airports. Order here corresponds to order of LEDs
 std::vector<String> airports({
   "KRSV",
-  "KHUF",
   "KPRG",
-  "KCFJ",
-  "KGPC",
+  "KHUF",
   "KBMG",
-  "KBAK",
-  "KGEZ",
-  "KHFY",
-  "KIND",
-  "KEYE",
+  "KGPC",
+  "KCFJ",
   "KTYQ",
   "KUMP",
-  "KMQJ"
+  "KMQJ",
+  "KEYE",
+  "KIND",
+  "KHFY",
+  "KGEZ",
+  "KBAK"
 });
 
 /* ----------------------------------------------------------------------- */
