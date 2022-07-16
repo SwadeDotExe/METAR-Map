@@ -8,6 +8,7 @@
 #include <FastLED.h>
 #include "FastLED_RGBW.h"
 #include <vector>
+#include <PubSubClient.h>
 using namespace std;
 #define FASTLED_ESP8266_RAW_PIN_ORDER
 
@@ -20,12 +21,14 @@ using namespace std;
 #define REQUEST_INTERVAL 900000   // How often we update. In practice LOOP_INTERVAL is added. In ms (15 min is 900000)
 
 // WiFi Credentials
-const char ssid[] = "SSID";             // your network SSID (name)
-const char pass[] = "PASS";   // your network password (use for WPA, or use as key for WEP)
+const char ssid[] = "ssid";                  // your network SSID (name)
+const char password[] = "password";                  // your network password (use for WPA, or use as key for WEP)
+const char mqtt_server[] = "192.168.1.208";   // MQTT Server address
 
 // LED Variables
 #define DATA_PIN 14
-int brightness = 128;
+int brightness = 100;
+int oldBrightness = 100;
 
 // List of Airports. Order here corresponds to order of LEDs
 std::vector<String> airports({
@@ -58,22 +61,41 @@ int loops = -1;
 std::vector<unsigned short int> lightningLeds;
 int status = WL_IDLE_STATUS;
 
-  // Initialize LEDs
-  CRGBW leds[NUM_AIRPORTS];       // Create LED channel array. Times by 4 because of RGBW
-  CRGB *ledsRGB = (CRGB *) &leds[0];
+// Initialize LEDs
+CRGBW leds[NUM_AIRPORTS];       // Create LED channel array. Times by 4 because of RGBW
+CRGB *ledsRGB = (CRGB *) &leds[0];
+
+// Setup MQTT
+WiFiClient espClient;
+PubSubClient client(espClient);
+unsigned long lastMsg = 0;
+#define MSG_BUFFER_SIZE  (50)
+char msg[MSG_BUFFER_SIZE];
+int value = 0;
 
 void setup() {
 
   // Initialize serial
   Serial.begin(115200);
 
-
+  // Create LED array
   FastLED.addLeds<WS2812B, DATA_PIN, RGB>(ledsRGB, getRGBWsize(NUM_AIRPORTS));
 
+  // Test LEDS
   FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
   colorFill(CRGB::Red);
   colorFill(CRGB::Green);
   colorFill(CRGB::Blue);
+  fillWhite();
+  colorFill(CRGB::Black);
+
+
+  // Setup WiFi
+  setup_wifi();
+
+  // Create MQTT Client
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
 
   // // Disable Onboard LED
   // pinMode(LED_BUILTIN, OUTPUT);
@@ -91,48 +113,17 @@ void loop() {
 
   // Connect to WiFi if not connected
   if (WiFi.status() != WL_CONNECTED) {
-    if (ledStatus) colorFill(CRGB::Orange); // indicate status with LEDs, but only on first run or error
-    FastLED.show();
-    WiFi.mode(WIFI_STA);
-    WiFi.hostname("LED Sectional " + WiFi.macAddress());
-    Serial.print("WiFi connecting..");
-    WiFi.begin(ssid, pass);
-    for (c = 0; (c < WIFI_TIMEOUT) && (WiFi.status() != WL_CONNECTED); c++) {
-      Serial.write('.');
-      delay(1000);
-    }
-    if (c >= WIFI_TIMEOUT) { // If it didn't connect within WIFI_TIMEOUT
-      Serial.println("Failed. Will retry...");
-      colorFill(CRGB::Orange);
-      FastLED.show();
-      ledStatus = true;
-      return;
-    }
-    Serial.println("OK!");
-    if (ledStatus) colorFill(CRGB::Purple); // indicate status with LEDs
-    FastLED.show();
-    ledStatus = false;
+    setup_wifi();
+  }
+
+  // Connect to MQTT if not conencted
+  if (!client.connected()) {
+    MQTTReconnect();
   }
 
   // Do some lightning
   if (DO_LIGHTNING && lightningLeds.size() > 0) {
-    std::vector<CRGBW> lightning(lightningLeds.size());
-    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
-      unsigned short int currentLed = lightningLeds[i];
-      lightning[i] = leds[currentLed]; // temporarily store original color
-      leds[currentLed] = CRGBW(0, 0, 0, 255); // set to white briefly
-      Serial.print("Lightning on LED: ");
-      Serial.println(currentLed);
-    }
-    delay(25); // extra delay seems necessary with light sensor
-    FastLED.show();
-    delay(25);
-    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
-      unsigned short int currentLed = lightningLeds[i];
-      leds[currentLed] = CRGBW(0, 0, 0, 0); // set to white briefly
-      leds[currentLed] = lightning[i]; // restore original color
-    }
-    FastLED.show();
+    doLightning();
   }
 
   if (loops >= loopThreshold || loops == 0) {
@@ -145,20 +136,21 @@ void loop() {
       if ((DO_LIGHTNING && lightningLeds.size() > 0)) {
         Serial.println("There is lightning or we're using a light sensor, so no long sleep.");
         digitalWrite(LED_BUILTIN, HIGH);
-        delay(LOOP_INTERVAL); // pause during the interval
+        delayWithMQTT(LOOP_INTERVAL); // pause during the interval
       } else {
         Serial.print("No lightning; Going into sleep for: ");
         Serial.println(REQUEST_INTERVAL);
         digitalWrite(LED_BUILTIN, HIGH);
-        delay(REQUEST_INTERVAL);
+        delayWithMQTT(REQUEST_INTERVAL);
       }
     } else {
       digitalWrite(LED_BUILTIN, HIGH);
-      delay(RETRY_TIMEOUT); // try again if unsuccessful
+      delayWithMQTT(RETRY_TIMEOUT); // try again if unsuccessful
     }
-  } else {
+  }
+  else { //
     digitalWrite(LED_BUILTIN, HIGH);
-    delay(LOOP_INTERVAL); // pause during the interval
+    delayWithMQTT(LOOP_INTERVAL); // pause during the interval
   }
 }
 
@@ -233,7 +225,7 @@ bool getMetars(){
         return false;
       }
       Serial.print(".");
-      delay(1000);
+      delayWithMQTT(1000);
     }
 
     Serial.println();
@@ -369,5 +361,181 @@ void colorFill(CRGB c){
     FastLED.show();
     delay(50);
   }
-  delay(500);
+  delayWithMQTT(500);
+}
+
+void colorFillShort(CRGB c){
+  for(int i = 0; i < NUM_AIRPORTS; i++){
+    leds[i] = c;
+    FastLED.show();
+    delay(1);
+  }
+}
+
+void fillWhite(){
+  for(int i = 0; i < NUM_AIRPORTS; i++){
+    leds[i] = CRGBW(0, 0, 0, 255);
+    FastLED.show();
+    delay(50);
+  }
+  delayWithMQTT(500);
+}
+
+void setup_wifi() {
+
+  delay(10);
+  colorFillShort(CRGB::Blue);
+
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    colorFillShort(CRGB::Black);
+    delay(250);
+    Serial.print(".");
+    colorFillShort(CRGB::Blue);
+    delay(250);
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  colorFillShort(CRGB::Green);
+  delay(100);
+  colorFillShort(CRGB::Black);
+  delay(100);
+  colorFillShort(CRGB::Green);
+  delay(100);
+  colorFillShort(CRGB::Black);
+  delay(100);
+  colorFillShort(CRGB::Green);
+  delay(100);
+  colorFillShort(CRGB::Black);
+}
+
+// Get MQTT Message (Interrupt)
+void callback(char topic[], unsigned char payload[], unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  boolean breakOut = false;
+  char buffer[length];
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+    buffer[i] = (char)payload[i];
+  }
+  Serial.println();
+
+  // Convert buffer to String
+  String message = String(buffer);
+
+  // Brightness Handler
+  if (strcmp(topic, "METARMap/Brightness") == 0) {
+
+    brightness = message.toInt();
+    Serial.print("Updating Brightness to ");
+    Serial.println(brightness);
+    oldBrightness = brightness;
+    FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
+    FastLED.show();
+    breakOut = true;
+    break;
+  }
+
+  // Right Couch Handler
+  if (strcmp(topic, "METARMap/State") == 0 && !breakOut) {
+    Serial.print("Updating state to ");
+    Serial.println(message);
+    if (message == "true") {
+      brightness = oldBrightness;
+      FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
+      FastLED.show();
+    } else {
+      oldBrightness = brightness;
+      brightness = 0;
+      FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
+      FastLED.show();
+    }
+  }
+}
+
+void MQTTReconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      client.subscribe("METARMap/State");
+      client.subscribe("METARMap/Brightness");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void doLightning() {
+  std::vector<CRGBW> lightning(lightningLeds.size());
+
+  // Store original color
+  for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+    unsigned short int currentLed = lightningLeds[i];
+    Serial.print("Lightning on LED: ");
+    Serial.println(currentLed);
+    lightning[i] = leds[currentLed]; // temporarily store original color
+  }
+
+  // Do the lightning
+  for (unsigned short int i = 0; i < 3; ++i) {
+    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+      unsigned short int currentLed = lightningLeds[i];
+      leds[currentLed] = CRGBW(0, 0, 0, 255); // set to white briefly
+      FastLED.show();
+      delay(25);
+      leds[currentLed] = CRGBW(0, 0, 0, 0); // set to black briefly
+      FastLED.show();
+      delay(75);
+      leds[currentLed] = CRGBW(0, 0, 0, 255); // set to white briefly
+      FastLED.show();
+      delay(100);
+      leds[currentLed] = CRGBW(0, 0, 0, 0); // set to black briefly
+      FastLED.show();
+      delay(75);
+    }
+  }
+  delay(25); // extra delay seems necessary with light sensor
+  FastLED.show();
+  delay(25);
+  for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+    unsigned short int currentLed = lightningLeds[i];
+    leds[currentLed] = CRGBW(0, 0, 0, 0); // set to black
+    leds[currentLed] = lightning[i]; // restore original color
+  }
+  FastLED.show();
+}
+
+void delayWithMQTT(int delay) {
+
+  // Snapshot current time
+  unsigned long currentMillis = millis();
+
+  // Wait until time reaches (snapshot + delay)
+  while (currentMillis + delay > millis()) {
+
+    // Update MQTT
+    client.loop();
+  }
 }
