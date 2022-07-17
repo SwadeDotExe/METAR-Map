@@ -72,6 +72,7 @@ unsigned long lastMsg = 0;
 #define MSG_BUFFER_SIZE  (50)
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
+bool masterState = true;
 
 void setup() {
 
@@ -103,6 +104,12 @@ void setup() {
 }
 
 void loop() {
+
+  // If map is turned off, basically just sit here
+  while (!masterState) {
+    // Update MQTT
+    client.loop();
+  }
 
   int c;
   loops++;
@@ -424,7 +431,6 @@ void callback(char topic[], unsigned char payload[], unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  boolean breakOut = false;
   char buffer[length];
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
@@ -444,22 +450,23 @@ void callback(char topic[], unsigned char payload[], unsigned int length) {
     oldBrightness = brightness;
     FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
     FastLED.show();
-    breakOut = true;
   }
 
   // Right Couch Handler
-  if (strcmp(topic, "METARMap/State") == 0 && !breakOut) {
+  if (strcmp(topic, "METARMap/State") == 0) {
     Serial.print("Updating state to ");
     Serial.println(message);
     if (message == "true") {
       brightness = oldBrightness;
       FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
       FastLED.show();
+      masterState = true;
     } else {
       oldBrightness = brightness;
       brightness = 0;
       FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
       FastLED.show();
+      masterState = false;
     }
   }
 }
