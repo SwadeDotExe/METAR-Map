@@ -154,7 +154,7 @@ void loop() {
   }
 }
 
-bool getMetars(){
+bool getMetars() {
   lightningLeds.clear(); // clear out existing lightning LEDs since they're global
   colorFill(CRGB::Black); // Set everything to black just in case there is no report
   uint32_t t;
@@ -355,8 +355,8 @@ void doColor(String identifier, unsigned short int led, int wind, int gusts, Str
   FastLED.show();
 }
 
-void colorFill(CRGB c){
-  for(int i = 0; i < NUM_AIRPORTS; i++){
+void colorFill(CRGB c) {
+  for (int i = 0; i < NUM_AIRPORTS; i++) {
     leds[i] = c;
     FastLED.show();
     delay(50);
@@ -364,16 +364,16 @@ void colorFill(CRGB c){
   delayWithMQTT(500);
 }
 
-void colorFillShort(CRGB c){
-  for(int i = 0; i < NUM_AIRPORTS; i++){
+void colorFillShort(CRGB c) {
+  for (int i = 0; i < NUM_AIRPORTS; i++) {
     leds[i] = c;
     FastLED.show();
     delay(1);
   }
 }
 
-void fillWhite(){
-  for(int i = 0; i < NUM_AIRPORTS; i++){
+void fillWhite() {
+  for (int i = 0; i < NUM_AIRPORTS; i++) {
     leds[i] = CRGBW(0, 0, 0, 255);
     FastLED.show();
     delay(50);
@@ -445,7 +445,6 @@ void callback(char topic[], unsigned char payload[], unsigned int length) {
     FastLED.setBrightness(brightness);     // Set brightness of LEDs to variable
     FastLED.show();
     breakOut = true;
-    break;
   }
 
   // Right Couch Handler
@@ -499,22 +498,32 @@ void doLightning() {
   }
 
   // Do the lightning
-  for (unsigned short int i = 0; i < 3; ++i) {
+  for (unsigned short int i = 0; i < 2; ++i) {
     for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
       unsigned short int currentLed = lightningLeds[i];
       leds[currentLed] = CRGBW(0, 0, 0, 255); // set to white briefly
       FastLED.show();
-      delay(25);
+    }
+    delay(25);
+    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+      unsigned short int currentLed = lightningLeds[i];
       leds[currentLed] = CRGBW(0, 0, 0, 0); // set to black briefly
       FastLED.show();
-      delay(75);
+    }
+    delay(75);
+    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+      unsigned short int currentLed = lightningLeds[i];
       leds[currentLed] = CRGBW(0, 0, 0, 255); // set to white briefly
       FastLED.show();
-      delay(100);
+    }
+    delay(100);
+    for (unsigned short int i = 0; i < lightningLeds.size(); ++i) {
+      unsigned short int currentLed = lightningLeds[i];
       leds[currentLed] = CRGBW(0, 0, 0, 0); // set to black briefly
       FastLED.show();
-      delay(75);
     }
+    delay(75);
+
   }
   delay(25); // extra delay seems necessary with light sensor
   FastLED.show();
