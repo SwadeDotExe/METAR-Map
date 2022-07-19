@@ -107,8 +107,22 @@ void loop() {
 
   // If map is turned off, basically just sit here
   while (!masterState) {
+
+    // Connect to WiFi if not connected
+    if (WiFi.status() != WL_CONNECTED) {
+      setup_wifi();
+    }
+
+    // Connect to MQTT if not conencted
+    if (!client.connected()) {
+      MQTTReconnect();
+    }
+
     // Update MQTT
     client.loop();
+
+    // Delay
+    delay(100);
   }
 
   int c;
