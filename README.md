@@ -36,7 +36,3 @@
   Now we are in the home stretch! Put everything back together, making sure the cardboard lines up with the paper map on top and put the glass back on. If everything is wired correctly, the LEDs should light up and run through a color test. If you did this project on a rainy day like I did, you should see some neat colors already: 
   
   <img src="https://github.com/SwadeDotExe/METAR-Map/blob/main/Images/Final.jpg" width=50% height=50%>
-  
-  README is in progress!
-  
- 
